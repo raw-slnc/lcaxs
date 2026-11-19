@@ -14,6 +14,7 @@ about=QGIS selects the first layer after opening a project, which can expand its
 about[ja]=QGISはプロジェクトを開いた後に先頭レイヤーを選択するため、閉じた状態で保存された親グループが展開されることがあります。このレイヤーツリー状態復元プラグインは、読込完了後にプロジェクトへ保存された展開状態を再適用します。グループの右クリックメニューから、指定したグループとその祖先を常に開くこともできます。ツールバーボタンや設定画面はなく、レイヤーの可視性、順序、選択レイヤーは変更しません。L.C.a.X.s.は「Layer Collapse and eXpansion state」に由来します。
 changelog=
     0.1.0 - Restores saved layer-tree expansion state and can explicitly keep selected groups open.
+icon=icon.png
 category=Layers
 tags=LCAXS,layer tree state,layer panel,layer tree,group,project,startup,レイヤーパネル,グループ,起動
 experimental=True

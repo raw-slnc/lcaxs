@@ -2,12 +2,12 @@ import unittest
 
 from qgis.core import QgsLayerTreeGroup
 
-from lcaxs.plugin import (
+from lcaxs.always_open import (
     ALWAYS_OPEN_PROPERTY,
     apply_always_open,
-    apply_expansion_state,
     group_is_always_open,
 )
+from lcaxs.restorer import apply_expansion_state
 from lcaxs.state import ExpansionState
 
 

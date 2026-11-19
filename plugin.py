@@ -4,102 +4,22 @@
 from __future__ import annotations
 
 import os
-from typing import Iterator, Optional
+from typing import Optional
 import zipfile
 
 from qgis.PyQt.QtCore import QTimer
-from qgis.PyQt.QtGui import QActionGroup
 from qgis.core import (
     Qgis,
-    QgsApplication,
-    QgsLayerTreeGroup,
     QgsMessageLog,
     QgsProject,
 )
 
-from .state import ExpansionState, GroupPath, state_from_project_file, state_from_qdom
+from .always_open import AlwaysOpenFeature
+from .restorer import apply_expansion_state
+from .state import ExpansionState, state_from_project_file, state_from_qdom
 
 
 PLUGIN_NAME = "L.C.a.X.s."
-ALWAYS_OPEN_PROPERTY = "lcaxs/alwaysOpen"
-
-
-def _groups_below(group: QgsLayerTreeGroup) -> Iterator[QgsLayerTreeGroup]:
-    for child in group.children():
-        if isinstance(child, QgsLayerTreeGroup):
-            yield child
-            yield from _groups_below(child)
-
-
-def _property_is_true(value) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes"}
-    return bool(value)
-
-
-def group_is_always_open(group: QgsLayerTreeGroup) -> bool:
-    """Return whether a group has the persistent always-open override."""
-
-    return _property_is_true(group.customProperty(ALWAYS_OPEN_PROPERTY, False))
-
-
-def _expand_group_and_ancestors(
-    group: QgsLayerTreeGroup, root: QgsLayerTreeGroup
-) -> int:
-    changed = 0
-    current = group
-    while isinstance(current, QgsLayerTreeGroup) and current is not root:
-        if not current.isExpanded():
-            current.setExpanded(True)
-            changed += 1
-        current = current.parent()
-    return changed
-
-
-def apply_always_open(root: QgsLayerTreeGroup) -> int:
-    """Open opted-in groups and their ancestors, returning changed node count."""
-
-    changed = 0
-    for group in _groups_below(root):
-        if group_is_always_open(group):
-            changed += _expand_group_and_ancestors(group, root)
-    return changed
-
-
-def _find_group(root: QgsLayerTreeGroup, path: GroupPath):
-    current = root
-    for name, occurrence in path:
-        matches = [
-            child
-            for child in current.children()
-            if isinstance(child, QgsLayerTreeGroup) and child.name() == name
-        ]
-        if occurrence >= len(matches):
-            return None
-        current = matches[occurrence]
-    return current
-
-
-def apply_expansion_state(root: QgsLayerTreeGroup, state: ExpansionState) -> int:
-    """Apply saved expansion state and return the number of changed nodes."""
-
-    changed = 0
-    for layer_id, expanded in state.layers.items():
-        node = root.findLayer(layer_id)
-        if node is not None and node.isExpanded() != expanded:
-            node.setExpanded(expanded)
-            changed += 1
-
-    # Children first, parents last, so every parent's saved state is final.
-    for path, expanded in sorted(
-        state.groups.items(), key=lambda item: len(item[0]), reverse=True
-    ):
-        group = _find_group(root, path)
-        if group is not None and group.isExpanded() != expanded:
-            group.setExpanded(expanded)
-            changed += 1
-
-    return changed
 
 
 class LcaxsPlugin:
@@ -111,6 +31,7 @@ class LcaxsPlugin:
         self._timer = QTimer(iface.mainWindow())
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._restore_pending_state)
+        self._always_open = AlwaysOpenFeature(iface)
         self._connected = False
 
     def initGui(self):  # noqa: N802 - QGIS requires this name
@@ -119,9 +40,7 @@ class LcaxsPlugin:
         project = QgsProject.instance()
         project.readProject.connect(self._capture_project_state)
         self.iface.projectRead.connect(self._project_loaded)
-        self.iface.layerTreeView().contextMenuAboutToShow.connect(
-            self._populate_context_menu
-        )
+        self._always_open.connect()
         self._connected = True
 
         # Covers enabling the plugin after a project has already been opened.
@@ -133,6 +52,7 @@ class LcaxsPlugin:
         """Disconnect signals and cancel a queued restoration."""
 
         self._timer.stop()
+        self._always_open.disconnect()
         if self._connected:
             project = QgsProject.instance()
             try:
@@ -141,12 +61,6 @@ class LcaxsPlugin:
                 pass
             try:
                 self.iface.projectRead.disconnect(self._project_loaded)
-            except (TypeError, RuntimeError):
-                pass
-            try:
-                self.iface.layerTreeView().contextMenuAboutToShow.disconnect(
-                    self._populate_context_menu
-                )
             except (TypeError, RuntimeError):
                 pass
         try:
@@ -193,48 +107,7 @@ class LcaxsPlugin:
             root = project.layerTreeRoot()
             if state is not None and not state.is_empty():
                 apply_expansion_state(root, state)
-            apply_always_open(root)
-
-    def _populate_context_menu(self, menu):
-        node = self.iface.layerTreeView().currentNode()
-        if not isinstance(node, QgsLayerTreeGroup):
-            return
-
-        menu.addSeparator()
-        submenu = menu.addMenu("L.C.a.X.s.")
-        choices = QActionGroup(submenu)
-        choices.setExclusive(True)
-
-        always_open = submenu.addAction(self._text("常に開く", "Always open"))
-        follow_saved = submenu.addAction(
-            self._text("保存状態に従う", "Follow saved state")
-        )
-        for action in (always_open, follow_saved):
-            action.setCheckable(True)
-            choices.addAction(action)
-
-        enabled = group_is_always_open(node)
-        always_open.setChecked(enabled)
-        follow_saved.setChecked(not enabled)
-        always_open.triggered.connect(
-            lambda checked, group=node: self._set_always_open(group, checked)
-        )
-        follow_saved.triggered.connect(
-            lambda checked, group=node: self._set_always_open(group, not checked)
-        )
-
-    def _set_always_open(self, group: QgsLayerTreeGroup, enabled: bool):
-        if enabled:
-            group.setCustomProperty(ALWAYS_OPEN_PROPERTY, True)
-            _expand_group_and_ancestors(group, QgsProject.instance().layerTreeRoot())
-        else:
-            group.removeCustomProperty(ALWAYS_OPEN_PROPERTY)
-        # Changing the policy is an explicit project edit and must be saved.
-        QgsProject.instance().setDirty(True)
-
-    @staticmethod
-    def _text(japanese: str, english: str) -> str:
-        return japanese if QgsApplication.locale().lower().startswith("ja") else english
+            self._always_open.apply(root)
 
     @staticmethod
     def _log_warning(message: str, error: Exception):

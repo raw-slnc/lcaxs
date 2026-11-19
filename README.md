@@ -41,11 +41,24 @@ QGISはプロジェクトを開いた後に先頭レイヤーを選択するた�
 ツールバーボタンや設定画面はありません。レイヤーの可視性、描画順序、
 選択レイヤーは変更しません。
 
+## Requirements
+
+- QGIS 3.22 or later (including QGIS 4.x)
+
+## License
+
+This plugin is distributed under the GNU General Public License v2 or later.
+See [LICENSE](LICENSE) for details.
+
+## Author
+
+Hideharu Masai
+
 ## Development check
 
 ```bash
 PYTHONPYCACHEPREFIX=/tmp/lcaxs_pycache \
-  python3 -m py_compile __init__.py plugin.py state.py
+  python3 -m py_compile __init__.py plugin.py state.py restorer.py always_open.py
 QT_QPA_PLATFORM=offscreen \
 PYTHONPATH=..:/usr/share/qgis/python:/usr/share/qgis/python/plugins \
   python3 -B -m unittest discover -s tests
